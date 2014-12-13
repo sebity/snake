@@ -9,9 +9,9 @@
 (defparameter *audio-root* (merge-pathnames "audio/" *data-root*))
 
 ;;;; Game Params
-(defparameter *game-width* 900)
+(defparameter *game-width* 920)
 (defparameter *game-height* 640)
-(defparameter *game-state* 0) ; 0=menu, 1:ready/new-level, 2:in-game, 3:game-over
+(defparameter *game-state* 0) ; 0=menu, 1:in-game, 2:game-over
 (defparameter *arena-width* 39)
 (defparameter *arena-height* 39)
 (defparameter *arena* nil)
@@ -24,7 +24,8 @@
 (defparameter *lives* 3)
 
 (defparameter *food* nil)
-(defparameter *food-count* 10)
+(defparameter *food-count* 0)
+(defparameter *max-food-count* 10)
 (defparameter *empty-x* 0)
 (defparameter *empty-y* 0)
 
@@ -228,7 +229,7 @@
 
 (defun update-snake ()
   (setf *ticks* (incf *ticks*))
-  (if (>= *ticks* *level-speed*)
+  (if (>= *ticks* (/ 30 *level*))
       (progn (move-snake)
 	     (setf *ticks* 0))))
 
@@ -269,8 +270,16 @@
 
 (defun feed-snake ()
   (setf *total-food-eaten* (incf *total-food-eaten*))
-  (setf *total-score* (+ *total-score* (* 10 *level*)))
-  (setf *snake-growth* (+ *snake-growth* 10)))
+  (setf *total-score* (+ *total-score* (* 10 (length *snake-body*) *level*)))
+  (setf *snake-growth* (+ *snake-growth* 10))
+
+  (setf *food-count* (decf *food-count*))
+  (if (zerop *food-count*)
+      (if (= *level* 10)
+	  (change-game-state)
+	  (progn (setf *food-count* *max-food-count*)
+		 (setf *level* (incf *level*))))))
+
 
 
 ;;;; LOSE-LIFE function
@@ -279,7 +288,7 @@
   (setf *lives* (decf *lives*))
 
   (if (zerop *lives*)
-      (format t "Game Over")
+      (change-game-state)
       (reset-level)))
   
 
@@ -290,6 +299,8 @@
 ;;;; DISPLAY-UI function
 
 (defun display-ui ()
+  (draw-text "SNAKE GAME" 720 20 255 255 255)
+
   (draw-text "STATISTICS" 640 80 255 255 255)
   (draw-text (format nil "Level: ~a" *level*) 660 120 255 255 255)
   (draw-text (format nil "Lives: ~a" *lives*) 660 160 255 255 255)
@@ -303,16 +314,45 @@
   (draw-text "Move Right: Right Arrow" 660 540 255 255 255)
   (draw-text "Quit: Q" 660 580 255 255 255))
 
+
+;;;; DISPLAY-END-GAME function
+
+(defun display-end-game ()
+  (draw-text "SNAKE GAME" 400 20 255 255 255)
+
+  (if (and (zerop *food-count*) (= *level* 10))
+      (draw-text "CONGRATULATIONS!!!  YOU WON!!!" 300 100 255 255 0)
+      (progn (draw-text "GAME OVER!" 400 130 255 255 255)
+	     (draw-text (format nil "YOUR SCORE IS ~a" *total-score*) 360 300 255 0 0)))
+
+  (draw-text "Press SPACE to Continue..." 320 540 255 255 255))
+
+
 ;;;; DISPLAY-MENU function
 
 (defun display-menu ()
+  (draw-text "SNAKE GAME" 400 20 255 255 255)
   (draw-text "Main Menu" 20 100 255 255 255))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;; GAME STATE ;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+;;;; CONTINUE-OPTION function
+
+(defun continue-option ()
+  (cond ((zerop *game-state*) (change-game-state))
+	((= *game-state* 2) (change-game-state))
+	(t ())))
 
 
 ;;;; CHANGE-GAME-STATE function
 
 (defun change-game-state ()
-  (cond ((zerop *game-state*) ())
+  (cond ((zerop *game-state*) (progn (reset-game)
+				     (setf *game-state* 1)))
+	((= *game-state* 1) (setf *game-state* 2))
+	((= *game-state* 2) (setf *game-state* 0))
 	(t ())))
 
 
@@ -325,11 +365,17 @@
   (update-swank)
   (sdl:clear-display sdl:*black*)
   ;(display-menu)
-  (draw-arena)
-  (display-ui)
-  (draw-food)
-  (update-snake)
-  (draw-snake)
+  (cond ((= *game-state* 1)
+	 (draw-arena)
+	 (display-ui)
+	 (draw-food)
+	 (update-snake)
+	 (draw-snake))
+
+	((= *game-state* 2)
+	 (display-end-game))
+
+	(t (display-menu)))
   (sdl:update-display))
 
 
@@ -337,6 +383,7 @@
 
 (defun reset-level ()
   (setf *snake-growth* 0)
+  (setf *food-count* *max-food-count*)
   (create-snake)
   (create-food))
 
@@ -349,6 +396,7 @@
   (setf *lives* 3)
   (setf *total-food-eaten* 0)
   (setf *total-score* 0)
+  (setf *food-count* *max-food-count*)
   (create-arena)
   (create-snake)
   (create-food))
@@ -420,8 +468,10 @@
 		   t)
       (:key-down-event (:key key)
 		       (case key
+			 (:sdl-key-q (if (= *game-state* 1)
+					 (change-game-state)))
 			 (:sdl-key-r (reset-level))
-			 ;(:sdl-key-space (continue-option))
+			 (:sdl-key-space (continue-option))
 			 (:sdl-key-escape (sdl:push-quit-event))))
       (:key-up-event (:key key)
 		     (case key))
