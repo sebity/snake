@@ -9,8 +9,8 @@
 (defparameter *audio-root* (merge-pathnames "audio/" *data-root*))
 
 ;;;; Game Params
-(defparameter *game-width* 640)
-(defparameter *game-height* 700)
+(defparameter *game-width* 900)
+(defparameter *game-height* 640)
 (defparameter *game-state* 0) ; 0=menu, 1:ready/new-level, 2:in-game, 3:game-over
 (defparameter *arena-width* 39)
 (defparameter *arena-height* 39)
@@ -21,15 +21,16 @@
 (defparameter *snake* nil)
 (defparameter *snake-body* nil)
 (defparameter *snake-growth* 0)
+(defparameter *lives* 3)
 
 (defparameter *food* nil)
 (defparameter *food-count* 10)
 (defparameter *empty-x* 0)
 (defparameter *empty-y* 0)
 
-
 (defparameter *level* 1)
-(defparameter *level-speed* 15)
+(defparameter *total-food-eaten* 0)
+(defparameter *total-score* 0)
 
 ;;;; Sound Params
 (defparameter *mixer-opened* nil)
@@ -38,7 +39,7 @@
 
 ;;;; Font Params
 (defparameter *terminus-ttf* (make-instance 'SDL:ttf-font-definition
-					    :size 24
+					    :size 18
 					    :filename (merge-pathnames "TerminusTTF.ttf" *font-root*)))
 
 
@@ -105,9 +106,15 @@
 ;;;; COLLIDE-WALL-P function
 
 (defun collide-wall-p (x y)
-  (if (or (= x 0) (= x *arena-width*) (= y 0) (= y *arena-height*))
-      t
-      nil))
+  (if (or (<= x 0) (>= x *arena-width*) (<= y 0) (>= y *arena-height*))
+      (lose-life)))
+
+
+;;;; COLLIDE-SELF-P function
+
+(defun collide-self-p (x y)
+  (if (member (list x y) *snake-body* :test #'equal)
+      (lose-life)))
 
 
 ;;;; COLLIDE-FOOD-P function
@@ -143,21 +150,26 @@
 
 ;;;;;;;;;;;;;;;;;;;;;;;; FOOD ;;;;;;;;;;;;;;;;;;;;;;;;
 
+;;;; FIND-EMPTY-SPACE function
 
 (defun find-empty-space ()
-  (setf *empty-x* (random *arena-width*))
-  (setf *empty-y* (random *arena-height*))
+  (setf *empty-x* (+ (random (- *arena-width* 1)) 1))
+  (setf *empty-y* (+ (random (- *arena-height* 1)) 1))
   (if (and 
        (and (= *empty-x* (x *snake*)) (= *empty-y* (y *snake*)))
-       (member (list *empty-x* *empty-y*) *snake-body*))
+       (member (list *empty-x* *empty-y*) *snake-body* :test #'equal))
       (find-empty-space)
       t))
 
+
+;;;; CREATE-FOOD function
 
 (defun create-food ()
   (find-empty-space)
   (setf *food* (make-instance 'food :x *empty-x* :y *empty-y*)))
 
+
+;;;; DRAW-FOOD function
 
 (defun draw-food ()
   (sdl:draw-box-* (* *tile-size* (x *food*)) (* *tile-size* (y *food*)) 
@@ -173,16 +185,19 @@
 ;;;; CREATE-SNAKE function
 
 (defun create-snake ()
-  (setf *snake* (make-instance 'snake :x 5 :y 19 :direction 'right))
-  (setf *snake-body* '((4 19) (3 19) (2 19) (1 19))))
+  (setf *snake* (make-instance 'snake :x 18 :y 19 :direction 'right))
+  (setf *snake-body* '((17 19) (16 19) (15 19) (14 19))))
 
 
 ;;;; DRAW-SNAKE function
 
 (defun draw-snake ()
+  ; Draw Head
   (sdl:draw-box-* (* *tile-size* (x *snake*)) (* *tile-size* (y *snake*)) 
 		  *tile-size* *tile-size*
-		  :color (sdl:color :r 0 :g 200 :b 0))
+		  :color (sdl:color :r 0 :g 150 :b 0))
+  
+  ; Draw Body
   (loop for elem in *snake-body*
        do (sdl:draw-box-* (* *tile-size* (first elem)) (* *tile-size* (second elem)) 
 		  *tile-size* *tile-size*
@@ -233,36 +248,60 @@
   (let ((x (x *snake*))
 	(y (y *snake*))
 	(direction (direction *snake*)))
-    (cond ((eq direction 'up) (if (collide-wall-p x (- y 1))
-				  t
-				  (progn (update-snake-body x y) 
-					 (setf (y *snake*) (decf y)))))
+    (cond ((eq direction 'up) (progn (update-snake-body x y) 
+				     (setf (y *snake*) (decf y))))
 
-	  ((eq direction 'down) (if (collide-wall-p x (+ y 1))
-				    t
-				    (progn (update-snake-body x y)
-					   (setf (y *snake*) (incf y)))))
+	  ((eq direction 'down) (progn (update-snake-body x y)
+				       (setf (y *snake*) (incf y))))
 
-	  ((eq direction 'right) (if (collide-wall-p (+ x 1) y)
-				     t				    
-				     (progn (update-snake-body x y)
-					   (setf (x *snake*) (incf x)))))
+	  ((eq direction 'right) (progn (update-snake-body x y)
+					   (setf (x *snake*) (incf x))))
 
-	  ((eq direction 'left) (if (collide-wall-p (- x 1) y)
-				    t
-				    (progn (update-snake-body x y)
-					   (setf (x *snake*) (decf x))))))
+	  ((eq direction 'left) (progn (update-snake-body x y)
+				       (setf (x *snake*) (decf x)))))
 
+    (collide-wall-p x y)
+    (collide-self-p x y)
     (collide-food-p x y)))
 
 
+;;;; FEED-SNAKE function
+
 (defun feed-snake ()
-  (setf *snake-growth* (+ *snake-growth* 5)))
+  (setf *total-food-eaten* (incf *total-food-eaten*))
+  (setf *total-score* (+ *total-score* (* 10 *level*)))
+  (setf *snake-growth* (+ *snake-growth* 10)))
+
+
+;;;; LOSE-LIFE function
+
+(defun lose-life ()
+  (setf *lives* (decf *lives*))
+
+  (if (zerop *lives*)
+      (format t "Game Over")
+      (reset-level)))
   
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;; SCREENS ;;;;;;;;;;;;;;;;;;;;;;;;
 
+
+;;;; DISPLAY-UI function
+
+(defun display-ui ()
+  (draw-text "STATISTICS" 640 80 255 255 255)
+  (draw-text (format nil "Level: ~a" *level*) 660 120 255 255 255)
+  (draw-text (format nil "Lives: ~a" *lives*) 660 160 255 255 255)
+  (draw-text (format nil "Total Fruit Eaten: ~a" *total-food-eaten*) 660 200 255 255 255)
+  (draw-text (format nil "Total Score: ~a" *total-score*) 660 240 255 255 255)
+
+  (draw-text "CONTROLS" 640 380 255 255 255)
+  (draw-text "Move Up: Up Arrow" 660 420 255 255 255)
+  (draw-text "Move Down: Down Arrow" 660 460 255 255 255)
+  (draw-text "Move Left: Left Arrow" 660 500 255 255 255)
+  (draw-text "Move Right: Right Arrow" 660 540 255 255 255)
+  (draw-text "Quit: Q" 660 580 255 255 255))
 
 ;;;; DISPLAY-MENU function
 
@@ -287,18 +326,29 @@
   (sdl:clear-display sdl:*black*)
   ;(display-menu)
   (draw-arena)
+  (display-ui)
   (draw-food)
   (update-snake)
   (draw-snake)
   (sdl:update-display))
 
 
+;;;; RESET-LEVEL function
+
+(defun reset-level ()
+  (setf *snake-growth* 0)
+  (create-snake)
+  (create-food))
+
+
 ;;;; RESET-GAME function
 
 (defun reset-game ()
   (setf *level* 1)
-  (setf *level-speed* 30)
   (setf *snake-growth* 0)
+  (setf *lives* 3)
+  (setf *total-food-eaten* 0)
+  (setf *total-score* 0)
   (create-arena)
   (create-snake)
   (create-food))
@@ -370,6 +420,7 @@
 		   t)
       (:key-down-event (:key key)
 		       (case key
+			 (:sdl-key-r (reset-level))
 			 ;(:sdl-key-space (continue-option))
 			 (:sdl-key-escape (sdl:push-quit-event))))
       (:key-up-event (:key key)
