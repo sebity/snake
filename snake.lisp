@@ -10,8 +10,8 @@
 
 ;;;; Game Params
 (defparameter *game-width* 640)
-(defparameter *game-height* 640)
-(defparameter *game-state* 0) ; 0=menu, 1:ready, 2:in-game, 3:win-lose
+(defparameter *game-height* 700)
+(defparameter *game-state* 0) ; 0=menu, 1:ready/new-level, 2:in-game, 3:game-over
 (defparameter *arena-width* 39)
 (defparameter *arena-height* 39)
 (defparameter *arena* nil)
@@ -20,7 +20,16 @@
 
 (defparameter *snake* nil)
 (defparameter *snake-body* nil)
-(defparameter *snake-size* *tile-size*)
+(defparameter *snake-growth* 0)
+
+(defparameter *food* nil)
+(defparameter *food-count* 10)
+(defparameter *empty-x* 0)
+(defparameter *empty-y* 0)
+
+
+(defparameter *level* 1)
+(defparameter *level-speed* 15)
 
 ;;;; Sound Params
 (defparameter *mixer-opened* nil)
@@ -41,6 +50,13 @@
    (direction :accessor direction :initarg :direction)))
 
 
+;;;; FOOD class
+
+(defclass food ()
+  ((x :accessor x :initarg :x)
+   (y :accessor y :initarg :y)))
+
+
 ;;;; CONTINUABLE macro
 
 (defmacro continuable (&body body)
@@ -59,6 +75,9 @@
        (swank::handle-requests connection t)))))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;; PRIMITIVES ;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 ;;;; DRAW-TEXT function
 
 (defun draw-text (string x y r g b)
@@ -66,6 +85,8 @@
 			   x y
 			   :color (sdl:color :r r :g g :b b)))
 
+
+;;;; DRAW-LINE function
 
 (defun draw-line (x0 y0 x1 y1 r g b)
   (sdl:draw-line-* x0 y0 x1 y1
@@ -78,12 +99,26 @@
   (sdl-mixer:play-sample (aref *soundfx* s)))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;; COLLISON ;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 ;;;; COLLIDE-WALL-P function
 
 (defun collide-wall-p (x y)
-  (if (or (= x 1) (= x (- *arena-width* 1)) (= y 1) (= y (- *arena-height* 1)))
+  (if (or (= x 0) (= x *arena-width*) (= y 0) (= y *arena-height*))
       t
       nil))
+
+
+;;;; COLLIDE-FOOD-P function
+
+(defun collide-food-p (x y)
+  (if (and (= x (x *food*)) (= y (y *food*)))
+      (progn (feed-snake)
+	     (create-food))))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;; ARENA ;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 ;;;; CREATE-ARENA function
@@ -97,13 +132,42 @@
 (defun draw-arena ()
   (loop for y from 1 to *arena-height*
      do (draw-line *tile-size* (* y *tile-size*) 
-		   (- *game-width* *tile-size*) (* y *tile-size*) 
+		   (* *arena-width* *tile-size*) (* y *tile-size*) 
 		   55 55 55))
 
   (loop for x from 1 to *arena-width*
      do (draw-line (* x *tile-size*) *tile-size* 
-		   (* x *tile-size*) (- *game-height* *tile-size*)
+		   (* x *tile-size*) (* *arena-height* *tile-size*)
 		   55 55 55)))
+
+
+;;;;;;;;;;;;;;;;;;;;;;;; FOOD ;;;;;;;;;;;;;;;;;;;;;;;;
+
+
+(defun find-empty-space ()
+  (setf *empty-x* (random *arena-width*))
+  (setf *empty-y* (random *arena-height*))
+  (if (and 
+       (and (= *empty-x* (x *snake*)) (= *empty-y* (y *snake*)))
+       (member (list *empty-x* *empty-y*) *snake-body*))
+      (find-empty-space)
+      t))
+
+
+(defun create-food ()
+  (find-empty-space)
+  (setf *food* (make-instance 'food :x *empty-x* :y *empty-y*)))
+
+
+(defun draw-food ()
+  (sdl:draw-box-* (* *tile-size* (x *food*)) (* *tile-size* (y *food*)) 
+		  *tile-size* *tile-size*
+		  :color (sdl:color :r 255 :g 0 :b 0)))
+
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;; SNAKE ;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 ;;;; CREATE-SNAKE function
@@ -112,18 +176,17 @@
   (setf *snake* (make-instance 'snake :x 5 :y 19 :direction 'right))
   (setf *snake-body* '((4 19) (3 19) (2 19) (1 19))))
 
+
 ;;;; DRAW-SNAKE function
 
 (defun draw-snake ()
   (sdl:draw-box-* (* *tile-size* (x *snake*)) (* *tile-size* (y *snake*)) 
-		  *snake-size* *snake-size*
-		  :color (sdl:color :r 0 :g 255 :b 0)
-		  :stroke-color (sdl:color :r 255 :g 0 :b 0))
+		  *tile-size* *tile-size*
+		  :color (sdl:color :r 0 :g 200 :b 0))
   (loop for elem in *snake-body*
        do (sdl:draw-box-* (* *tile-size* (first elem)) (* *tile-size* (second elem)) 
-		  *snake-size* *snake-size*
-		  :color (sdl:color :r 0 :g 255 :b 0)
-		  :stroke-color (sdl:color :r 255 :g 125 :b 0))))
+		  *tile-size* *tile-size*
+		  :color (sdl:color :r 0 :g 255 :b 0))))
 
 
 ;;;; MOVE-SNAKE function
@@ -150,9 +213,18 @@
 
 (defun update-snake ()
   (setf *ticks* (incf *ticks*))
-  (if (>= *ticks* 30)
+  (if (>= *ticks* *level-speed*)
       (progn (move-snake)
 	     (setf *ticks* 0))))
+
+
+;;;; UPDATE-SNAKE-BODY function
+
+(defun update-snake-body (x y)
+  (if (zerop *snake-growth*)
+      (setf *snake-body* (cons (list x y) (butlast *snake-body*)))
+      (progn (setf *snake-body* (cons (list x y) *snake-body*))
+	     (setf *snake-growth* (decf *snake-growth*)))))
 
 
 ;;;; MOVE-SNAKE function
@@ -179,13 +251,17 @@
 	  ((eq direction 'left) (if (collide-wall-p (- x 1) y)
 				    t
 				    (progn (update-snake-body x y)
-					   (setf (x *snake*) (decf x))))))))
+					   (setf (x *snake*) (decf x))))))
+
+    (collide-food-p x y)))
 
 
-;;;; UPDATE-SNAKE-BODY function
+(defun feed-snake ()
+  (setf *snake-growth* (+ *snake-growth* 5)))
+  
 
-(defun update-snake-body (x y)
-  (setf *snake-body* (cons (list x y) (butlast *snake-body*))))
+
+;;;;;;;;;;;;;;;;;;;;;;;; SCREENS ;;;;;;;;;;;;;;;;;;;;;;;;
 
 
 ;;;; DISPLAY-MENU function
@@ -201,6 +277,9 @@
 	(t ())))
 
 
+;;;;;;;;;;;;;;;;;;;;;;;; THE GAME ;;;;;;;;;;;;;;;;;;;;;;;;
+
+
 ;;;; RENDER function
 
 (defun render ()
@@ -208,6 +287,7 @@
   (sdl:clear-display sdl:*black*)
   ;(display-menu)
   (draw-arena)
+  (draw-food)
   (update-snake)
   (draw-snake)
   (sdl:update-display))
@@ -216,9 +296,13 @@
 ;;;; RESET-GAME function
 
 (defun reset-game ()
+  (setf *level* 1)
+  (setf *level-speed* 30)
+  (setf *snake-growth* 0)
   (create-arena)
-  (create-snake))
-
+  (create-snake)
+  (create-food))
+  
 
 ;;;; INITIALIZE-GAME function
 
