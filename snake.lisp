@@ -15,7 +15,6 @@
 (defparameter *game-state* 0) ; 0=menu, 1:in-game, 2:game-over
 (defparameter *arena-width* 39)
 (defparameter *arena-height* 39)
-(defparameter *arena* nil)
 (defparameter *tile-size* 16)
 (defparameter *ticks* 0)
 
@@ -150,12 +149,6 @@
 ;;;;;;;;;;;;;;;;;;;;;;;; ARENA ;;;;;;;;;;;;;;;;;;;;;;;;
 
 
-;;;; CREATE-ARENA function
-
-(defun create-arena ()
-  (setf *arena* (make-array (list *arena-height* *arena-width*))))
-
-
 ;;;; DRAW-ARENA function
 
 (defun draw-arena ()
@@ -177,7 +170,7 @@
 (defun find-empty-space ()
   (setf *empty-x* (+ (random (- *arena-width* 1)) 1))
   (setf *empty-y* (+ (random (- *arena-height* 1)) 1))
-  (if (and 
+  (if (or 
        (and (= *empty-x* (x *snake*)) (= *empty-y* (y *snake*)))
        (member (list *empty-x* *empty-y*) *snake-body* :test #'equal))
       (find-empty-space)
@@ -422,7 +415,6 @@
   (setf *total-food-eaten* 0)
   (setf *total-score* 0)
   (setf *food-count* *max-food-count*)
-  (create-arena)
   (create-snake)
   (create-food))
   
