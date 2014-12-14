@@ -7,6 +7,7 @@
 (defparameter *data-root* "src/lisp/snake/")
 (defparameter *font-root* (merge-pathnames "fonts/" *data-root*))
 (defparameter *audio-root* (merge-pathnames "audio/" *data-root*))
+(defparameter *gfx-root* (merge-pathnames "gfx/" *data-root*))
 
 ;;;; Game Params
 (defparameter *game-width* 920)
@@ -32,16 +33,30 @@
 (defparameter *level* 1)
 (defparameter *total-food-eaten* 0)
 (defparameter *total-score* 0)
+(defparameter *longest-snake-chain* 0)
 
 ;;;; Sound Params
 (defparameter *mixer-opened* nil)
 (defparameter *music* nil)
 (defparameter *soundfx* nil)
 
+;;;; GFX Params
+(defparameter *gfx-snake* (merge-pathnames "snake_intro.png" *gfx-root*))
+
 ;;;; Font Params
 (defparameter *terminus-ttf* (make-instance 'SDL:ttf-font-definition
 					    :size 18
 					    :filename (merge-pathnames "TerminusTTF.ttf" *font-root*)))
+(defparameter *terminus-ttf-24* (make-instance 'SDL:ttf-font-definition
+					    :size 24
+					    :filename (merge-pathnames "TerminusTTF.ttf" *font-root*)))
+(defparameter *terminus-ttf-32* (make-instance 'SDL:ttf-font-definition
+					    :size 32
+					    :filename (merge-pathnames "TerminusTTF.ttf" *font-root*)))
+
+(defparameter *ttf-font-normal* nil)
+(defparameter *ttf-font-large* nil)
+(defparameter *ttf-font-huge* nil)
 
 
 ;;;; SNAKE class
@@ -86,6 +101,12 @@
   (sdl:draw-string-solid-* string
 			   x y
 			   :color (sdl:color :r r :g g :b b)))
+
+(defun draw-text-size (string x y r g b font-size)
+  (sdl:draw-string-solid-* string
+			   x y
+			   :color (sdl:color :r r :g g :b b)
+			   :font font-size))
 
 
 ;;;; DRAW-LINE function
@@ -269,6 +290,7 @@
 ;;;; FEED-SNAKE function
 
 (defun feed-snake ()
+  (play-sound 0)
   (setf *total-food-eaten* (incf *total-food-eaten*))
   (setf *total-score* (+ *total-score* (* 10 (length *snake-body*) *level*)))
   (setf *snake-growth* (+ *snake-growth* 10))
@@ -278,7 +300,8 @@
       (if (= *level* 10)
 	  (change-game-state)
 	  (progn (setf *food-count* *max-food-count*)
-		 (setf *level* (incf *level*))))))
+		 (setf *level* (incf *level*))
+		 (play-sound 1)))))
 
 
 
@@ -299,15 +322,16 @@
 ;;;; DISPLAY-UI function
 
 (defun display-ui ()
-  (draw-text "SNAKE GAME" 720 20 255 255 255)
+  (draw-text-size "SNAKE" 740 20 255 255 0 *ttf-font-large*)
 
-  (draw-text "STATISTICS" 640 80 255 255 255)
+  (draw-text "STATISTICS" 640 80 255 120 0)
   (draw-text (format nil "Level: ~a" *level*) 660 120 255 255 255)
   (draw-text (format nil "Lives: ~a" *lives*) 660 160 255 255 255)
-  (draw-text (format nil "Total Fruit Eaten: ~a" *total-food-eaten*) 660 200 255 255 255)
-  (draw-text (format nil "Total Score: ~a" *total-score*) 660 240 255 255 255)
+  (draw-text (format nil "Fruit Left on Level: ~a" *food-count*) 660 200 255 255 255)
+  (draw-text (format nil "Total Fruit Eaten: ~a" *total-food-eaten*) 660 240 255 255 255)
+  (draw-text (format nil "Total Score: ~a" *total-score*) 660 280 255 255 255)
 
-  (draw-text "CONTROLS" 640 380 255 255 255)
+  (draw-text "CONTROLS" 640 380 255 120 0)
   (draw-text "Move Up: Up Arrow" 660 420 255 255 255)
   (draw-text "Move Down: Down Arrow" 660 460 255 255 255)
   (draw-text "Move Left: Left Arrow" 660 500 255 255 255)
@@ -318,21 +342,23 @@
 ;;;; DISPLAY-END-GAME function
 
 (defun display-end-game ()
-  (draw-text "SNAKE GAME" 400 20 255 255 255)
+  (draw-text-size "SNAKE GAME" 400 20 255 255 0 *ttf-font-huge*)
 
   (if (and (zerop *food-count*) (= *level* 10))
-      (draw-text "CONGRATULATIONS!!!  YOU WON!!!" 300 100 255 255 0)
-      (progn (draw-text "GAME OVER!" 400 130 255 255 255)
-	     (draw-text (format nil "YOUR SCORE IS ~a" *total-score*) 360 300 255 0 0)))
+      (draw-text-size "CONGRATULATIONS!!!  YOU WON!!!" 300 100 255 255 0 *ttf-font-huge*)
+      (progn (draw-text-size "GAME OVER!" 400 130 255 255 255 *ttf-font-huge*)
+	     (draw-text-size (format nil "YOUR SCORE IS ~a" *total-score*) 
+			     340 300 255 0 0 *ttf-font-huge*)))
 
-  (draw-text "Press SPACE to Continue..." 320 540 255 255 255))
+  (draw-text "Press SPACE to Continue..." 350 540 255 255 255))
 
 
 ;;;; DISPLAY-MENU function
 
 (defun display-menu ()
-  (draw-text "SNAKE GAME" 400 20 255 255 255)
-  (draw-text "Main Menu" 20 100 255 255 255))
+  (sdl:draw-surface-at-* (sdl:load-image *gfx-snake*) 180 20)
+
+  (draw-text "Press SPACE to Start..." 350 540 255 255 255))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;; GAME STATE ;;;;;;;;;;;;;;;;;;;;;;;;
@@ -364,7 +390,6 @@
 (defun render ()
   (update-swank)
   (sdl:clear-display sdl:*black*)
-  ;(display-menu)
   (cond ((= *game-state* 1)
 	 (draw-arena)
 	 (display-ui)
@@ -411,11 +436,12 @@
 ;;;; SETUP-AUDIO function
 
 (defun setup-audio ()
-  (setf *soundfx* (make-array 3))
+  (setf *soundfx* (make-array 2))
   (sdl-mixer:init-mixer :mp3)
   (setf *mixer-opened* (sdl-mixer:OPEN-AUDIO :chunksize 1024 :enable-callbacks nil))
   (when *mixer-opened*
-    ;(setf (aref *soundfx* 0) (sdl-mixer:load-sample (sdl:create-path "beep.ogg" *audio-root*)))
+    (setf (aref *soundfx* 0) (sdl-mixer:load-sample (sdl:create-path "bite.ogg" *audio-root*)))
+    (setf (aref *soundfx* 1) (sdl-mixer:load-sample (sdl:create-path "level-up.ogg" *audio-root*)))
     (sample-finished-action)
     (sdl-mixer:allocate-channels 16)))
 
@@ -457,11 +483,15 @@
     (sdl:window *game-width* *game-height* :title-caption "Snake")
     (setf (sdl:frame-rate) 60)
 
-    ;(setup-audio)
+    (setup-audio)
 
     (unless (sdl:initialise-default-font *terminus-ttf*)
       (error "FONT-EXAMPLE: Cannot initialize the default font."))
-    
+
+    (setf *ttf-font-normal* (sdl:initialise-font *terminus-ttf*))
+    (setf *ttf-font-large* (sdl:initialise-font *terminus-ttf-24*))
+    (setf *ttf-font-huge* (sdl:initialise-font *terminus-ttf-32*))
+
     (sdl:with-events ()
       (:quit-event ()
 		   (clean-up)
