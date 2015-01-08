@@ -4,7 +4,7 @@
 
 ;;; "snake" goes here. Hacks and glory await!
 
-(defparameter *data-root* "src/lisp/snake/")
+(defparameter *data-root* (asdf:system-source-directory 'snake))
 (defparameter *font-root* (merge-pathnames "fonts/" *data-root*))
 (defparameter *audio-root* (merge-pathnames "audio/" *data-root*))
 (defparameter *gfx-root* (merge-pathnames "gfx/" *data-root*))
